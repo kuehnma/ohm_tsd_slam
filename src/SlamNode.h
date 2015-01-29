@@ -10,6 +10,7 @@
 
 #include <ros/ros.h>
 #include <sensor_msgs/LaserScan.h>
+#include <std_srvs/Empty.h>
 
 #include <vector>
 
@@ -41,7 +42,9 @@ public:
   /**
    * Default constructor
    */
-  SlamNode(void);
+
+
+  SlamNode(const std::string& content, obvious::EnumTsdGridLoadSource source = obvious::FILE);
 
   /**
    * Destructor
@@ -69,12 +72,16 @@ private:
    */
   void run(void);
 
+  void localizeOnly(void);
+
   /**
    * laserScanCallBack
    * Callback method to laser subscriber
    * @param scan Laser scan
    */
   void laserScanCallBack(const sensor_msgs::LaserScan& scan);
+
+  bool storeMapServiceCallBack(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res);
 
   /**
    * Main node handle
@@ -85,6 +92,8 @@ private:
    * Laser subscriber
    */
   ros::Subscriber _laserSubs;
+
+  ros::ServiceServer _storeMapServer;
 
   /**
    * Initilized flag
@@ -165,6 +174,8 @@ private:
   double _footPrintWidth;
 
   double _footPrintHeight;
+
+  bool _localizeOnly;
 };
 
 } /* namespace ohm_tsdSlam */

@@ -9,22 +9,27 @@
 #include "Localization.h"
 #include "ThreadMapping.h"
 #include "ThreadGrid.h"
+
 #include "obcore/math/mathbase.h"
+
 #include <unistd.h>
 
 namespace ohm_tsd_slam
 {
-SlamNode::SlamNode(void)
+
+SlamNode::SlamNode(const std::string& content, obvious::EnumTsdGridLoadSource source)
 {
   ros::NodeHandle prvNh("~");
   std::string strVar;
+  std::string storeMapTopic;
   int octaveFactor        = 0;
   double cellside         = 0.0;
   double dVar             = 0;
   int iVar                = 0;
   double truncationRadius = 0.0;
-  prvNh.param        ("laser_topic", strVar, std::string("simon/scan"));
-  prvNh.param<double>("x_off_factor", _xOffFactor, 0.2);
+  prvNh.param        ("laser_topic", strVar, std::string("scan"));
+  prvNh.param        ("store_map_topic", storeMapTopic, std::string("store_map"));
+  prvNh.param<double>("x_off_factor", _xOffFactor, 0.5);
   prvNh.param<double>("y_off_factor", _yOffFactor, 0.5);
   prvNh.param<double>("yaw_offset", _yawOffset, 0.0);
   prvNh.param<int>   ("cell_octave_factor", octaveFactor, 10);
@@ -39,22 +44,37 @@ SlamNode::SlamNode(void)
   prvNh.param<double>("footprint_width" , _footPrintWidth, 0.1);
   prvNh.param<double>("footprint_height", _footPrintHeight, 0.1);
 
-  _laserSubs=_nh.subscribe(strVar, 1, &SlamNode::laserScanCallBack, this);
+  _laserSubs = _nh.subscribe(strVar, 1, &SlamNode::laserScanCallBack, this);
 
   unsigned int uiVar = static_cast<unsigned int>(octaveFactor);
+  _storeMapServer = _nh.advertiseService(storeMapTopic, &SlamNode::storeMapServiceCallBack, this);
   if((uiVar > 15) || (uiVar < 5))
   {
     std::cout << __PRETTY_FUNCTION__ << " error! Unknown / Invalid cell_octave_factor -> set to default!" << std::endl;
     uiVar = 10;
   }
   _initialized = false;
-  _grid        = new obvious::TsdGrid(cellside, obvious::LAYOUT_32x32, static_cast<obvious::EnumTsdGridLayout>(uiVar));
-  _grid->setMaxTruncation(truncationRadius * cellside);
 
-  unsigned int cellsPerSide = std::pow(2, uiVar);
-  std::cout << __PRETTY_FUNCTION__ << " creating representation with " << cellsPerSide << "x" << cellsPerSide;
-  double sideLength = static_cast<double>(cellsPerSide) * cellside;
-  std::cout << " cells, representating "<< sideLength << "x" << sideLength << "m^2" << std::endl;
+  if(content.size())
+  {
+    std::cout << __PRETTY_FUNCTION__ << " load grid from " << content << std::endl;
+    _grid = new obvious::TsdGrid(content, source);
+    _localizeOnly = true;
+    std::cout << __PRETTY_FUNCTION__ << "load map with " << _grid->getCellsX() << " x " << _grid->getCellsY() << " cells, " << _grid->getCellSize()
+              << " cellsize" << std::endl;
+  }
+  else
+  {
+    std::cout << __PRETTY_FUNCTION__ << " slam node started" << std::endl;
+    _grid        = new obvious::TsdGrid(cellside, obvious::LAYOUT_32x32, static_cast<obvious::EnumTsdGridLayout>(uiVar));
+    _grid->setMaxTruncation(truncationRadius * cellside);
+    _localizeOnly = false;
+    unsigned int cellsPerSide = std::pow(2, uiVar);
+          std::cout << __PRETTY_FUNCTION__ << " creating representation with " << cellsPerSide << "x" << cellsPerSide;
+          double sideLength = static_cast<double>(cellsPerSide) * cellside;
+          std::cout << " cells, representating "<< sideLength << "x" << sideLength << "m^2" << std::endl;
+  }
+
 
   _sensor        = NULL;
   _localizer     = NULL;
@@ -78,7 +98,10 @@ SlamNode::~SlamNode()
 
 void SlamNode::start(void)
 {
-  this->run();
+  if(1)//!_localizeOnly)
+    this->run();
+  else
+    localizeOnly();
 }
 
 void SlamNode::initialize(const sensor_msgs::LaserScan& initScan)
@@ -99,15 +122,27 @@ void SlamNode::initialize(const sensor_msgs::LaserScan& initScan)
   Tinit.setData(tf);
   _sensor->transform(&Tinit);
 
-  _threadMapping = new ThreadMapping(_grid);
-  const obfloat t[2] = {startX, startY};
-  if(!_grid->freeFootprint(t, _footPrintWidth, _footPrintHeight))
-    std::cout << __PRETTY_FUNCTION__ << " warning! Footprint could not be freed!\n";
-  _threadMapping->initPush(_sensor);
+  if(!_localizeOnly)
+  {
+    _threadMapping = new ThreadMapping(_grid);
+    const obfloat t[2] = {startX, startY};
+    if(!_grid->freeFootprint(t, _footPrintWidth, _footPrintHeight))
+      std::cout << __PRETTY_FUNCTION__ << " warning! Footprint could not be freed!\n";
+    _threadMapping->initPush(_sensor);
+  }
 
   _localizer   = new Localization(_grid, _threadMapping, _nh, _xOffFactor, _yOffFactor);
   _threadGrid  = new ThreadGrid(_grid, _nh, _xOffFactor, _yOffFactor);
   _initialized = true;
+  //  if(_localizeOnly)
+  //  {
+  //    ros::Rate r(1);
+  //     for(unsigned int i = 0; i < 10; i++)   //for debugging only toDo: remove later
+  //     {
+  //       _threadGrid->unblock();
+  //       r.sleep();
+  //     }
+  //  }
 }
 
 void SlamNode::run(void)
@@ -132,6 +167,11 @@ void SlamNode::run(void)
   }
 }
 
+void SlamNode::localizeOnly(void)
+{
+  ros::spin();
+}
+
 void SlamNode::laserScanCallBack(const sensor_msgs::LaserScan& scan)
 {
   sensor_msgs::LaserScan tmpScan = scan;
@@ -151,6 +191,11 @@ void SlamNode::laserScanCallBack(const sensor_msgs::LaserScan& scan)
   _sensor->resetMask();
   _sensor->maskDepthDiscontinuity(obvious::deg2rad(3.0));
   _localizer->localize(_sensor);
+}
+
+bool SlamNode::storeMapServiceCallBack(std_srvs::Empty::Request& req, std_srvs::Empty::Response& res)
+{
+  return _threadGrid->requestStoreTsdGrid();
 }
 
 } /* namespace ohm_tsdSlam2 */

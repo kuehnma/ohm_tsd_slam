@@ -17,8 +17,8 @@ namespace ohm_tsd_slam
 {
 
 Localization::Localization(obvious::TsdGrid* grid, ThreadMapping* mapper, ros::NodeHandle& nh, const double xOffFactor, const double yOffFactor):
-    _gridOffSetX(-1.0 * grid->getCellsX() * grid->getCellSize() * xOffFactor),
-    _gridOffSetY(-1.0 * grid->getCellsY() * grid->getCellSize() * yOffFactor)
+        _gridOffSetX(-1.0 * grid->getCellsX() * grid->getCellSize() * xOffFactor),
+        _gridOffSetY(-1.0 * grid->getCellsY() * grid->getCellSize() * yOffFactor)
 {
   _mapper           = mapper;
   _grid             = grid;
@@ -170,10 +170,13 @@ void Localization::localize(obvious::SensorPolar2D* sensor)
 
     _posePub.publish(_poseStamped);
     _tfBroadcaster.sendTransform(_tf);
-    if(this->isPoseChangeSignificant(_lastPose, &curPose))
+    if(_mapper)
     {
-      *_lastPose = curPose;
-      _mapper->queuePush(sensor);
+      if(this->isPoseChangeSignificant(_lastPose, &curPose))
+      {
+        *_lastPose = curPose;
+        _mapper->queuePush(sensor);
+      }
     }
   }
 }
