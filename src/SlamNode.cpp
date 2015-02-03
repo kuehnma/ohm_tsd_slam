@@ -132,7 +132,7 @@ void SlamNode::initialize(const sensor_msgs::LaserScan& initScan)
   }
 
   _localizer   = new Localization(_grid, _threadMapping, _nh, _xOffFactor, _yOffFactor);
-  _threadGrid  = new ThreadGrid(_grid, _nh, _xOffFactor, _yOffFactor);
+  _threadGrid  = new ThreadGrid(_grid, _nh, _xOffFactor, _yOffFactor, _localizeOnly);
   _initialized = true;
   //  if(_localizeOnly)
   //  {

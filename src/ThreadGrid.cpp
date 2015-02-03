@@ -10,7 +10,7 @@
 namespace ohm_tsd_slam
 {
 
-ThreadGrid::ThreadGrid(obvious::TsdGrid* grid, ros::NodeHandle nh, const double xOffFactor, const double yOffFactor)
+ThreadGrid::ThreadGrid(obvious::TsdGrid* grid, ros::NodeHandle nh, const double xOffFactor, const double yOffFactor, bool localizeOnly)
 {
   _grid           = grid;
   _occGridContent = new char[grid->getCellsX() * grid->getCellsY()];
@@ -49,6 +49,10 @@ ThreadGrid::ThreadGrid(obvious::TsdGrid* grid, ros::NodeHandle nh, const double 
   _gridPub          = nh.advertise<nav_msgs::OccupancyGrid>(mapTopic, 1);
   _getMapServ       = nh.advertiseService(getMapTopic, &ThreadGrid::getMapServCallBack, this);
   _objInflateFactor = static_cast<unsigned int>(intVar);
+
+  _localizeOnly = localizeOnly;
+  _initial = true;
+
 }
 
 ThreadGrid::~ThreadGrid()
@@ -81,44 +85,49 @@ void ThreadGrid::eventLoop(void)
   while(_stayActive)
   {
     _sleepCond.wait(_sleepMutex);
-    unsigned int mapSize = 0;
-    obvious::RayCastAxisAligned2D raycasterMap;
-    raycasterMap.calcCoords(_grid, _gridCoords, NULL, &mapSize, _occGridContent);
-    if(mapSize == 0)
+    if(_localizeOnly && _initial)
     {
-      std::cout << __PRETTY_FUNCTION__ << " error! Raycasting returned with no coordinates!\n";
-    }
-    _occGrid->header.stamp       = ros::Time::now();
-    _occGrid->header.seq         = frameId++;
-    _occGrid->info.map_load_time = ros::Time::now();
-    unsigned int gridSize        = _width * _height;
-
-    for(unsigned int i = 0; i < gridSize ; ++i)
-    {
-      _occGrid->data[i] = _occGridContent[i];
-    }
-    for(unsigned int i = 0; i < mapSize / 2; i++)
-    {
-      double x       = _gridCoords[2*i];
-      double y       = _gridCoords[2*i+1];
-      unsigned int u = static_cast<int>(x / _cellSize);
-      unsigned int v = static_cast<int>(y / _cellSize);
-      if(u > 0 && u < _width && v > 0 && v < _height)
+      std::cout << __PRETTY_FUNCTION__ << "inital call -> Raycast!" << std::endl;
+      unsigned int mapSize = 0;
+      obvious::RayCastAxisAligned2D raycasterMap;
+      raycasterMap.calcCoords(_grid, _gridCoords, NULL, &mapSize, _occGridContent);
+      if(mapSize == 0)
       {
-        _occGrid->data[v * _width + u] = 100;               //set grid cell to occupied
-        if(_objectInflation)
+        std::cout << __PRETTY_FUNCTION__ << " error! Raycasting returned with no coordinates!\n";
+      }
+      _occGrid->header.stamp       = ros::Time::now();
+      _occGrid->header.seq         = frameId++;
+      _occGrid->info.map_load_time = ros::Time::now();
+      unsigned int gridSize        = _width * _height;
+
+      for(unsigned int i = 0; i < gridSize ; ++i)
+      {
+        _occGrid->data[i] = _occGridContent[i];
+      }
+      for(unsigned int i = 0; i < mapSize / 2; i++)
+      {
+        double x       = _gridCoords[2*i];
+        double y       = _gridCoords[2*i+1];
+        unsigned int u = static_cast<int>(x / _cellSize);
+        unsigned int v = static_cast<int>(y / _cellSize);
+        if(u > 0 && u < _width && v > 0 && v < _height)
         {
-          for(unsigned int i = v-_objInflateFactor; i < v + _objInflateFactor; i++)
+          _occGrid->data[v * _width + u] = 100;               //set grid cell to occupied
+          if(_objectInflation)
           {
-            for(unsigned int j = u - _objInflateFactor; j < u + _objInflateFactor; j++)
+            for(unsigned int i = v-_objInflateFactor; i < v + _objInflateFactor; i++)
             {
-              if((u >= _width) || (v >= _height))
-                continue;
-              _occGrid->data[i * _width + j] = 100;
+              for(unsigned int j = u - _objInflateFactor; j < u + _objInflateFactor; j++)
+              {
+                if((u >= _width) || (v >= _height))
+                  continue;
+                _occGrid->data[i * _width + j] = 100;
+              }
             }
           }
         }
       }
+      _initial = false;
     }
     _gridPub.publish(*_occGrid);
     _storeGridMutex.lock();
