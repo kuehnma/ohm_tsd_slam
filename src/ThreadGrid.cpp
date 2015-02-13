@@ -85,9 +85,10 @@ void ThreadGrid::eventLoop(void)
   while(_stayActive)
   {
     _sleepCond.wait(_sleepMutex);
-    if(_localizeOnly && _initial)
+    if(!_localizeOnly || _initial)
     {
-      std::cout << __PRETTY_FUNCTION__ << "inital call -> Raycast!" << std::endl;
+      if(_initial)
+        std::cout << __PRETTY_FUNCTION__ << "inital call -> Raycast!" << std::endl;
       unsigned int mapSize = 0;
       obvious::RayCastAxisAligned2D raycasterMap;
       raycasterMap.calcCoords(_grid, _gridCoords, NULL, &mapSize, _occGridContent);

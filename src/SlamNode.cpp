@@ -57,7 +57,7 @@ SlamNode::SlamNode(const std::string& content, obvious::EnumTsdGridLoadSource so
 
   if(content.size())
   {
-    std::cout << __PRETTY_FUNCTION__ << " load grid from " << content << std::endl;
+    std::cout << __PRETTY_FUNCTION__ << " node in localize only mode" << std::endl;
     _grid = new obvious::TsdGrid(content, source);
     _localizeOnly = true;
     std::cout << __PRETTY_FUNCTION__ << "load map with " << _grid->getCellsX() << " x " << _grid->getCellsY() << " cells, " << _grid->getCellSize()
