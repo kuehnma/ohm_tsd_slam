@@ -11,7 +11,7 @@
 #include "obvision/reconstruct/grid/SensorPolar2D.h"
 #include "obvision/reconstruct/grid/TsdGrid.h"
 #include "obvision/reconstruct/grid/RayCastPolar2D.h"
-#include "obvision/icp/icp_def.h"
+#include "obvision/registration/icp/icp_def.h"
 
 #include <boost/signal.hpp>
 #include <boost/thread.hpp>
@@ -19,6 +19,7 @@
 #include <ros/ros.h>
 #include <sensor_msgs/LaserScan.h>
 #include <tf/transform_broadcaster.h>
+#include <tf/transform_listener.h>
 
 #define ITERATIONS  25
 #define TRNS_THRESH 0.25            //Thresholds for registration. If the gained transformation is out of these bounds,
@@ -34,7 +35,7 @@ class ThreadMapping;
 
 /**
  * @class Localization
- * @brief Localizes a laser scanner in a obvious::TsdGrid
+ * @brief Localizes a laser scanner in an obvious::TsdGrid
  * @author Philipp Koch, Stefan May
  */
 class Localization
@@ -175,6 +176,8 @@ private:
    */
   tf::TransformBroadcaster _tfBroadcaster;
 
+  tf::TransformListener _tfListener;
+
   /**
    * Ros current transform
    */
@@ -194,6 +197,16 @@ private:
    * Static sensor offset to kinematic center x-axis
    */
   double _lasXOffset;
+
+  /**
+   * Flag enabling a pre transformation with fused tf from additional node
+   */
+  bool _useFusedPreTrafo;
+
+  /**
+   * Tf frame of the fused transform
+   */
+  std::string _tfFrameFusedOdom;
 };
 
 } /* namespace ohm_tsd_slam*/

@@ -17,8 +17,8 @@ namespace ohm_tsd_slam
 {
 
 Localization::Localization(obvious::TsdGrid* grid, ThreadMapping* mapper, ros::NodeHandle& nh, const double xOffFactor, const double yOffFactor):
-        _gridOffSetX(-1.0 * grid->getCellsX() * grid->getCellSize() * xOffFactor),
-        _gridOffSetY(-1.0 * grid->getCellsY() * grid->getCellSize() * yOffFactor)
+                _gridOffSetX(-1.0 * grid->getCellsX() * grid->getCellSize() * xOffFactor),
+                _gridOffSetY(-1.0 * grid->getCellsY() * grid->getCellSize() * yOffFactor)
 {
   _mapper           = mapper;
   _grid             = grid;
@@ -52,10 +52,12 @@ Localization::Localization(obvious::TsdGrid* grid, ThreadMapping* mapper, ros::N
   std::string tfBaseFrameId;
   std::string tfChildFrameId;
   ros::NodeHandle prvNh("~");
-  prvNh.param        ("pose_topic", poseTopic, std::string("pose"));
-  prvNh.param        ("tf_base_frame", tfBaseFrameId, std::string("/map"));
-  prvNh.param        ("tf_child_frame", tfChildFrameId, std::string("laser"));
-  prvNh.param<double>("sensor_static_offset_x", _lasXOffset, -0.19);
+  prvNh.param             ("pose_topic", poseTopic, std::string("pose"));
+  prvNh.param             ("tf_base_frame", tfBaseFrameId, std::string("/map"));
+  prvNh.param             ("tf_child_frame", tfChildFrameId, std::string("laser"));
+  prvNh.param<double>     ("sensor_static_offset_x", _lasXOffset, -0.19);
+  prvNh.param<bool>       ("use_fused_tf", _useFusedPreTrafo, false);
+  prvNh.param<std::string>("fused_tf_frame", _tfFrameFusedOdom, "odom_laser_combined");
 
   _posePub = nh.advertise<geometry_msgs::PoseStamped>(poseTopic, 1);
 
@@ -114,10 +116,51 @@ void Localization::localize(obvious::SensorPolar2D* sensor)
   size = sensor->dataToCartesianVector(_scene);
   obvious::Matrix S(size / 2, 2, _scene);
   _icp->setScene(&S);
+
+  obvious::Matrix Tpre(4, 4);
+  Tpre.setIdentity();
+  if(_useFusedPreTrafo)
+  {
+    tf::StampedTransform odomFusedTf;
+    odomFusedTf.frame_id_ = _tf.frame_id_;
+    odomFusedTf.child_frame_id_ = _tfFrameFusedOdom;
+    bool error = false;
+    try
+    {
+      _tfListener.lookupTransform(_tf.frame_id_, _tfFrameFusedOdom, ros::Time(0), odomFusedTf);
+    }
+    catch(tf::TransformException& ex)
+    {
+      std::cout << __PRETTY_FUNCTION__ << " error looking up odom / slam fused tf" << std::endl;
+      error = true;
+    }
+    if(!error)
+    {
+      tf::Matrix3x3 rotation = odomFusedTf.getBasis();
+      for(unsigned int rows = 0; rows < 3; rows++)
+      {
+        tf::Vector3 row = rotation.getRow(rows);
+        for(unsigned int cols = 0; cols < 3; cols++)
+        {
+          Tpre(rows, cols) = row[cols];
+        }
+      }
+      tf::Vector3 t = odomFusedTf.getOrigin();
+      for(unsigned int i = 0; i < 3; i++)
+        Tpre(i, 3) = t[i];
+      std::cout << __PRETTY_FUNCTION__ << "received rotatioin matrix\n";
+      for(unsigned int rows = 0; rows < 3; rows++)
+        std::cout << rotation.getRow(rows)[0] << " " << rotation.getRow(rows)[1] << " " << rotation.getRow(rows)[2] << std::endl;
+      std::cout << "\nReceived t\n"
+                << t[0] << " " << t[1] << " " << t[2] << "\n generated 4x4 matrix\n";
+      Tpre.print();
+      std::cout << std::endl;
+    }
+  }
   double rms = 0.0;
   unsigned int pairs = 0;
   unsigned int it = 0;
-  _icp->iterate(&rms, &pairs, &it);
+  _icp->iterate(&rms, &pairs, &it, &Tpre);
   obvious::Matrix T = _icp->getFinalTransformation();
 
   // analyze registration result
@@ -127,7 +170,7 @@ void Localization::localize(obvious::SensorPolar2D* sensor)
   double deltaPhi = this->calcAngle(&T);
   _tf.stamp_ = ros::Time::now();
 
-  if(deltaY > 0.1 || (trnsAbs > _trnsMax) || std::fabs(std::sin(deltaPhi)) > _rotMax)
+  if((trnsAbs > _trnsMax) || std::fabs(std::sin(deltaPhi)) > _rotMax)    //deltaY > 0.1 ||
   {
     // localization error broadcast invalid tf
     _poseStamped.header.stamp = ros::Time::now();
